@@ -1,0 +1,28 @@
+# データベース（個人情報含むため除外）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 収集データ・Excel出力
+data/
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 設計書・内部メモ（リポジトリ不要）
+CLAUDE_CODE_PROMPT.md
+HANDOFF_TO_CLAUDE_CODE.md
+
+# ログ
+*.log

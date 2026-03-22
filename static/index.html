@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lifestudio ERP アナライザ</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body { background: #f4f6fa; font-family: 'Helvetica Neue', sans-serif; }
+  .navbar-brand { font-weight: bold; font-size: 1.25rem; }
+  .card { box-shadow: 0 2px 10px rgba(0,0,0,.07); border: none; border-radius: 12px; margin-bottom: 0; }
+  .card-header { border-radius: 12px 12px 0 0 !important; font-weight: 600; font-size: 0.9rem; }
+  .stat-card { text-align: center; padding: 16px 8px; }
+  .stat-card .num { font-size: 1.9rem; font-weight: bold; }
+  .stat-card .lbl { color: #6c757d; font-size: 0.78rem; margin-top: 2px; }
+  #log-area {
+    height: 180px; overflow-y: auto; background: #1a1a2e; color: #00e5a0;
+    font-family: monospace; font-size: 0.8rem; padding: 10px;
+    border-radius: 8px;
+  }
+  #log-area p { margin: 1px 0; }
+  canvas { max-height: 300px; }
+  .tab-content { padding-top: 18px; }
+  .section-title {
+    font-size: 0.82rem; font-weight: 600; color: #555;
+    text-transform: uppercase; letter-spacing: .05em;
+    margin-bottom: 12px; margin-top: 4px;
+  }
+  table.cross-tbl { font-size: 0.82rem; }
+  .no-data-msg { color: #aaa; text-align: center; padding: 30px; font-size: 0.9rem; }
+  .chain-badge {
+    display: inline-block; background: #e9f0ff; color: #0d47a1;
+    border-radius: 6px; padding: 2px 8px; font-size: 0.78rem; margin: 1px;
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-primary py-2 mb-4">
+  <div class="container-fluid px-4">
+    <span class="navbar-brand">📷 Lifestudio ERP アナライザ</span>
+    <span class="navbar-text text-white-50 small" id="nav-status">豊川店 | 準備中...</span>
+    <div class="d-flex gap-2 ms-auto">
+      <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#modal-pw">🔑 PW変更</button>
+      <button class="btn btn-outline-light btn-sm" onclick="doLogout()">ログアウト</button>
+    </div>
+  </div>
+</nav>
+
+<!-- パスワード変更モーダル -->
+<div class="modal fade" id="modal-pw" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">🔑 パスワード変更</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">現在のパスワード</label>
+          <input type="password" id="pw-current" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">新しいパスワード</label>
+          <input type="password" id="pw-new" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">新しいパスワード（確認）</label>
+          <input type="password" id="pw-confirm" class="form-control form-control-sm">
+        </div>
+        <div id="pw-msg" class="small" style="min-height:18px;"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">キャンセル</button>
+        <button class="btn btn-primary btn-sm" onclick="changePassword()">変更する</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid px-4">
+
+  <ul class="nav nav-tabs mb-0" id="mainTabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-collect">🔄 ERP収集</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dashboard" id="tab-dashboard-link">📊 ダッシュボード</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-instagram" id="tab-instagram-link">📸 Instagram</a></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ══════════ タブ1: 収集 ══════════ -->
+    <div class="tab-pane fade show active" id="tab-collect">
+      <div class="row g-3">
+
+        <div class="col-lg-5">
+          <div class="card h-100">
+            <div class="card-header bg-light">🔑 Cookie 設定</div>
+            <div class="card-body">
+              <label class="form-label small fw-semibold">ブラウザからCookieをコピーして貼り付け</label>
+              <textarea id="cookie-input" class="form-control font-monospace" rows="5"
+                style="font-size:0.78rem;"
+                placeholder="PHPSESSID=abc123; other_cookie=xyz..."></textarea>
+              <div class="mt-2 d-flex gap-2 align-items-center">
+                <button class="btn btn-outline-secondary btn-sm" onclick="testCookie()">🔍 接続テスト</button>
+                <span id="test-result" class="fw-semibold small"></span>
+              </div>
+              <div class="mt-3 p-2 bg-light rounded small text-muted">
+                <strong>取得方法:</strong> Chrome で staff.lifeerp.net を開く →
+                F12 → Network → リクエスト選択 → Headers → Cookie: をコピー
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-7">
+          <div class="card h-100">
+            <div class="card-header bg-light">▶ 収集コントロール</div>
+            <div class="card-body">
+
+              <div class="row g-2 mb-3">
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-primary" id="stat-reservations">-</div>
+                  <div class="lbl">予約件数</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-primary" id="stat-customers">-</div>
+                  <div class="lbl">ユニーク顧客</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-success" id="stat-fetched">-</div>
+                  <div class="lbl">収集済み</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-success" id="stat-children">-</div>
+                  <div class="lbl">誕生日取得</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-info" id="stat-address">-</div>
+                  <div class="lbl">住所取得</div>
+                </div></div>
+              </div>
+
+              <div class="d-flex gap-2 mb-3">
+                <button id="btn-start" class="btn btn-primary btn-sm" onclick="startCollection()">▶ 収集開始</button>
+                <button id="btn-stop" class="btn btn-danger btn-sm" onclick="stopCollection()" disabled>⏹ 中断</button>
+                <button class="btn btn-success btn-sm ms-auto" onclick="exportExcel()">📥 Excelダウンロード（7シート）</button>
+              </div>
+
+              <div id="progress-section" style="display:none;">
+                <div class="d-flex justify-content-between mb-1">
+                  <span id="progress-label" class="text-muted" style="font-size:0.82rem;"></span>
+                  <span id="progress-pct" class="fw-bold small">0%</span>
+                </div>
+                <div class="progress mb-3" style="height:16px;">
+                  <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+                       role="progressbar" style="width:0%"></div>
+                </div>
+              </div>
+
+              <label class="form-label small fw-semibold">収集ログ</label>
+              <div id="log-area"><p style="color:#555">収集を開始するとログが表示されます...</p></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════ タブ2: ダッシュボード ══════════ -->
+    <div class="tab-pane fade" id="tab-dashboard">
+
+      <!-- サマリーカード -->
+      <div class="row g-2 mb-3">
+        <div class="col"><div class="card stat-card"><div class="num text-primary" id="d-stat-reservations">-</div><div class="lbl">予約件数</div></div></div>
+        <div class="col"><div class="card stat-card"><div class="num text-primary" id="d-stat-customers">-</div><div class="lbl">ユニーク顧客</div></div></div>
+        <div class="col"><div class="card stat-card"><div class="num text-success" id="d-stat-children">-</div><div class="lbl">誕生日取得</div></div></div>
+        <div class="col"><div class="card stat-card"><div class="num text-info" id="d-stat-address">-</div><div class="lbl">住所取得</div></div></div>
+        <div class="col"><div class="card stat-card"><div class="num text-warning" id="d-stat-fetched-pct">-</div><div class="lbl">収集完了率</div></div></div>
+      </div>
+
+      <!-- セクション1: 月別推移 -->
+      <p class="section-title">📅 月別来店推移</p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header bg-info text-dark">月別来店件数（合計）</div>
+            <div class="card-body">
+              <canvas id="chart-monthly-total" style="max-height:260px;"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header bg-info text-dark">撮影種類 × 月別推移</div>
+            <div class="card-body">
+              <canvas id="chart-monthly" style="max-height:260px;"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- セクション2: 年齢・子供分析 -->
+      <p class="section-title">👶 年齢・子供分析</p>
+      <div class="row g-3 mb-4">
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-primary text-white">子供の撮影時年齢分布</div>
+            <div class="card-body">
+              <canvas id="chart-age"></canvas>
+              <div id="no-age" class="no-data-msg" style="display:none;">誕生日データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-primary text-white">兄弟順 × 撮影傾向</div>
+            <div class="card-body">
+              <canvas id="chart-sibling"></canvas>
+              <div id="no-sibling" class="no-data-msg" style="display:none;">誕生日データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-secondary text-white">年齢層 × 撮影種類 クロス集計</div>
+            <div class="card-body overflow-auto">
+              <div id="no-cross" class="no-data-msg" style="display:none;">誕生日データ収集後に表示</div>
+              <table class="table table-bordered table-sm cross-tbl" id="cross-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-secondary text-white">兄弟人数 × 来店回数</div>
+            <div class="card-body overflow-auto">
+              <div id="no-sibling-visit" class="no-data-msg" style="display:none;">誕生日データ収集後に表示</div>
+              <table class="table table-bordered table-sm cross-tbl" id="sibling-visit-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- セクション3: 母親分析 -->
+      <p class="section-title">👩 母親分析</p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-danger text-white">母親の年齢分布（撮影時）</div>
+            <div class="card-body">
+              <canvas id="chart-mother-age"></canvas>
+              <div id="no-mother-age" class="no-data-msg" style="display:none;">顧客データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-warning text-dark">来店回数分布</div>
+            <div class="card-body">
+              <canvas id="chart-visit"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- セクション4: 地域分析 -->
+      <p class="section-title">🗺️ 地域分析（県＋市）</p>
+      <div class="row g-3 mb-4">
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-success text-white">居住地域ランキング（市別）</div>
+            <div class="card-body">
+              <canvas id="chart-area"></canvas>
+              <div id="no-area" class="no-data-msg" style="display:none;">住所データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-success text-white">地域 × 撮影種類</div>
+            <div class="card-body overflow-auto">
+              <div id="no-area-type" class="no-data-msg" style="display:none;">住所データ収集後に表示</div>
+              <table class="table table-bordered table-sm cross-tbl" id="area-type-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- セクション5: 来店行動・連鎖分析 -->
+      <p class="section-title">🔗 来店行動・連鎖分析</p>
+      <div class="row g-3 mb-4">
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-warning text-dark">初来店→次回 撮影連鎖</div>
+            <div class="card-body overflow-auto">
+              <p class="text-muted small mb-2">初めて来店した撮影種類ごとに、次に何を撮りに来るか</p>
+              <div id="no-first-chain" class="no-data-msg" style="display:none;">データなし</div>
+              <table class="table table-bordered table-sm cross-tbl" id="first-chain-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-warning text-dark">0歳来店→次回 撮影連鎖</div>
+            <div class="card-body overflow-auto">
+              <p class="text-muted small mb-2">0歳で撮影した顧客が次に何を撮りに来るか</p>
+              <div id="no-zero-chain" class="no-data-msg" style="display:none;">誕生日データ収集後に表示</div>
+              <table class="table table-bordered table-sm cross-tbl" id="zero-chain-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header bg-info text-dark">初来店 月別件数（何月に初めて来るか）</div>
+            <div class="card-body">
+              <canvas id="chart-first-visit-monthly" style="max-height:260px;"></canvas>
+              <div id="no-first-monthly" class="no-data-msg" style="display:none;">データなし</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /tab-dashboard -->
+
+    <!-- ══════════ タブ3: Instagram ══════════ -->
+    <div class="tab-pane fade" id="tab-instagram">
+
+      <div class="row g-3 mb-4">
+
+        <!-- Graph API トークン設定 -->
+        <div class="col-lg-5">
+          <div class="card h-100">
+            <div class="card-header bg-light">🔑 Meta Graph API トークン設定</div>
+            <div class="card-body">
+
+              <!-- 接続済み表示 -->
+              <div id="ig-connected-info" style="display:none;" class="mb-3 p-2 border rounded bg-light">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="text-success fw-bold">✅ 接続済み</span>
+                  <span id="ig-acc-name" class="small text-muted"></span>
+                </div>
+                <div class="row g-1 text-center">
+                  <div class="col"><div class="small fw-semibold text-primary" id="ig-acc-followers">-</div><div class="text-muted" style="font-size:0.72rem;">フォロワー</div></div>
+                  <div class="col"><div class="small fw-semibold text-primary" id="ig-acc-media">-</div><div class="text-muted" style="font-size:0.72rem;">投稿数</div></div>
+                  <div class="col"><div class="small fw-semibold text-secondary" id="ig-token-masked">-</div><div class="text-muted" style="font-size:0.72rem;">トークン</div></div>
+                </div>
+              </div>
+
+              <!-- トークン未設定時の入力フォーム -->
+              <div id="ig-token-form">
+                <label class="form-label small fw-semibold">Meta Developer アクセストークン</label>
+                <input type="password" id="ig-token-input" class="form-control font-monospace mb-2"
+                  style="font-size:0.8rem;"
+                  placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                <button class="btn btn-primary btn-sm w-100" onclick="igSetupToken()">🔍 検証して保存</button>
+                <div id="ig-setup-result" class="fw-semibold small mt-2"></div>
+                <div class="mt-3 p-2 bg-light rounded small text-muted">
+                  <strong>取得方法:</strong><br>
+                  1. <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a> でアプリ作成<br>
+                  2. Instagramグラフ API を有効化<br>
+                  3. アクセストークンを発行してコピー
+                </div>
+              </div>
+
+              <!-- 再設定ボタン（接続済み時） -->
+              <div id="ig-reconfig-area" style="display:none;" class="mt-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="igShowTokenForm()">🔄 トークンを再設定</button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- 収集コントロール -->
+        <div class="col-lg-7">
+          <div class="card h-100">
+            <div class="card-header bg-light">▶ データ収集</div>
+            <div class="card-body">
+
+              <!-- 統計サマリー -->
+              <div class="row g-2 mb-3">
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-danger" id="ig-stat-total">-</div>
+                  <div class="lbl">収集済み投稿数</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-primary" id="ig-stat-avg-likes">-</div>
+                  <div class="lbl">平均いいね</div>
+                </div></div>
+                <div class="col"><div class="card stat-card bg-light">
+                  <div class="num text-success" id="ig-stat-avg-comments">-</div>
+                  <div class="lbl">平均コメント</div>
+                </div></div>
+              </div>
+
+              <div class="d-flex gap-2 mb-3">
+                <button id="ig-btn-start" class="btn btn-danger btn-sm" onclick="igGraphStartCollection()">▶ 収集開始</button>
+                <button id="ig-btn-stop" class="btn btn-secondary btn-sm" onclick="igGraphStopCollection()" disabled>⏹ 中断</button>
+                <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="loadIgDashboard()">🔄 グラフ更新</button>
+              </div>
+
+              <div id="ig-progress-section" style="display:none;">
+                <div class="d-flex justify-content-between mb-1">
+                  <span id="ig-progress-label" class="text-muted" style="font-size:0.82rem;"></span>
+                  <span id="ig-progress-pct" class="fw-bold small">0%</span>
+                </div>
+                <div class="progress mb-2" style="height:14px;">
+                  <div id="ig-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-danger"
+                       role="progressbar" style="width:0%"></div>
+                </div>
+              </div>
+
+              <label class="form-label small fw-semibold">収集ログ</label>
+              <div id="ig-log-area" style="height:150px;overflow-y:auto;background:#1a1a2e;color:#ff9eb5;font-family:monospace;font-size:0.78rem;padding:8px;border-radius:8px;">
+                <p style="color:#555">収集を開始するとログが表示されます...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Instagram 分析グラフ -->
+      <p class="section-title">📅 月別投稿・エンゲージメント推移</p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header bg-danger text-white">月別投稿件数</div>
+            <div class="card-body">
+              <canvas id="ig-chart-monthly" style="max-height:260px;"></canvas>
+              <div id="ig-no-monthly" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header bg-danger text-white">時間帯別投稿数</div>
+            <div class="card-body">
+              <canvas id="ig-chart-hourly" style="max-height:260px;"></canvas>
+              <div id="ig-no-hourly" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-title">📊 投稿種別・エンゲージメント</p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-header bg-secondary text-white">投稿種別（写真・動画・カルーセル）</div>
+            <div class="card-body">
+              <canvas id="ig-chart-type" style="max-height:240px;"></canvas>
+              <div id="ig-no-type" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-header bg-secondary text-white">曜日別投稿数</div>
+            <div class="card-body">
+              <canvas id="ig-chart-weekday" style="max-height:240px;"></canvas>
+              <div id="ig-no-weekday" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-header bg-secondary text-white">月別平均いいね数</div>
+            <div class="card-body">
+              <canvas id="ig-chart-likes" style="max-height:240px;"></canvas>
+              <div id="ig-no-likes" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-title">🏷️ ハッシュタグ分析 ＆ 🏆 上位投稿</p>
+      <div class="row g-3 mb-4">
+        <div class="col-md-4">
+          <div class="card h-100">
+            <div class="card-header bg-info text-dark">よく使うハッシュタグ TOP30</div>
+            <div class="card-body overflow-auto" style="max-height:360px;">
+              <div id="ig-no-hashtag" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+              <table class="table table-sm table-borderless" id="ig-hashtag-table" style="font-size:0.82rem;">
+                <thead><tr class="table-light"><th>#</th><th>ハッシュタグ</th><th>件数</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-8">
+          <div class="card">
+            <div class="card-header bg-warning text-dark">いいね＋コメント数 上位10投稿</div>
+            <div class="card-body overflow-auto">
+              <div id="ig-no-top" class="no-data-msg" style="display:none;">データ収集後に表示</div>
+              <table class="table table-bordered table-sm cross-tbl" id="ig-top-table">
+                <thead class="table-dark"></thead><tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-instagram -->
+
+  </div><!-- /tab-content -->
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
